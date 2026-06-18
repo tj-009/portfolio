@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { motion } from "framer-motion";
+import { motion, AnimatePresence } from "framer-motion";
 import {
   Mail,
   Phone,
@@ -11,9 +11,18 @@ import {
   Send,
   Copy,
   Check,
+  Loader2,
+  AlertCircle,
+  CheckCircle2,
 } from "lucide-react";
 import SectionHeading from "./SectionHeading";
 import { personal } from "@/lib/data";
+
+type Status =
+  | { kind: "idle" }
+  | { kind: "loading" }
+  | { kind: "success" }
+  | { kind: "error"; message: string };
 
 export default function Contact() {
   const [name, setName] = useState("");
@@ -21,7 +30,7 @@ export default function Contact() {
   const [subject, setSubject] = useState("");
   const [message, setMessage] = useState("");
   const [copiedField, setCopiedField] = useState<string | null>(null);
-  const [submitting, setSubmitting] = useState(false);
+  const [status, setStatus] = useState<Status>({ kind: "idle" });
 
   const copy = async (label: string, value: string) => {
     try {
@@ -33,17 +42,32 @@ export default function Contact() {
     }
   };
 
-  const onSubmit = (e: React.FormEvent) => {
+  const onSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    setSubmitting(true);
-    const body = encodeURIComponent(
-      `Hi Tanishk,\n\n${message}\n\n— ${name}${from ? ` (${from})` : ""}`
-    );
-    const subj = encodeURIComponent(
-      subject || `Portfolio inquiry from ${name || "a recruiter"}`
-    );
-    window.location.href = `mailto:${personal.email}?subject=${subj}&body=${body}`;
-    setTimeout(() => setSubmitting(false), 600);
+    if (status.kind === "loading") return;
+
+    setStatus({ kind: "loading" });
+    try {
+      const res = await fetch("/api/contact", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name, from, subject, message }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(data?.error || "Failed to send message.");
+      }
+      setStatus({ kind: "success" });
+      setName("");
+      setFrom("");
+      setSubject("");
+      setMessage("");
+      setTimeout(() => setStatus({ kind: "idle" }), 5000);
+    } catch (err) {
+      const msg =
+        err instanceof Error ? err.message : "Failed to send message.";
+      setStatus({ kind: "error", message: msg });
+    }
   };
 
   const items = [
@@ -72,6 +96,8 @@ export default function Contact() {
       href: undefined,
     },
   ];
+
+  const isLoading = status.kind === "loading";
 
   return (
     <section id="contact" className="section relative">
@@ -150,6 +176,7 @@ export default function Contact() {
                     </div>
                     {(it.label === "Email" || it.label === "Phone") && (
                       <button
+                        type="button"
                         onClick={() => copy(it.label, it.value)}
                         aria-label={`Copy ${it.label}`}
                         className="grid h-8 w-8 place-items-center rounded-md border border-white/10 bg-white/[0.04] text-white/70 transition hover:border-violet-400/40 hover:text-white"
@@ -181,6 +208,7 @@ export default function Contact() {
             <form
               onSubmit={onSubmit}
               className="glass-strong h-full p-6 md:p-7"
+              noValidate
             >
               <h3 className="text-xl font-semibold text-white">
                 Send a message
@@ -196,6 +224,7 @@ export default function Contact() {
                   value={name}
                   onChange={setName}
                   placeholder="Recruiter, PM, founder…"
+                  disabled={isLoading}
                 />
                 <Field
                   label="Email"
@@ -204,6 +233,7 @@ export default function Contact() {
                   value={from}
                   onChange={setFrom}
                   placeholder="you@company.com"
+                  disabled={isLoading}
                 />
               </div>
               <div className="mt-4">
@@ -212,34 +242,81 @@ export default function Contact() {
                   value={subject}
                   onChange={setSubject}
                   placeholder="AI freelance opportunity"
+                  disabled={isLoading}
                 />
               </div>
               <div className="mt-4">
                 <label className="text-[12px] font-medium text-white/65">
                   Message <span className="text-rose-400">*</span>
                 </label>
-                <motion.textarea
+                <textarea
                   required
                   rows={6}
                   value={message}
                   onChange={(e) => setMessage(e.target.value)}
+                  disabled={isLoading}
                   placeholder="What kind of work, timelines, and any context you can share."
-                  className="mt-1.5 w-full resize-y rounded-xl border border-white/10 bg-white/[0.02] px-3.5 py-2.5 text-sm text-white placeholder:text-white/30 outline-none transition focus:border-violet-400/40 focus:bg-white/[0.04]"
+                  className="mt-1.5 w-full resize-y rounded-xl border border-white/10 bg-white/[0.02] px-3.5 py-2.5 text-sm text-white placeholder:text-white/30 outline-none transition focus:border-violet-400/40 focus:bg-white/[0.04] disabled:opacity-60"
                 />
               </div>
 
+              <AnimatePresence mode="wait">
+                {status.kind === "success" && (
+                  <motion.div
+                    key="success"
+                    initial={{ opacity: 0, y: 6 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    exit={{ opacity: 0, y: -4 }}
+                    className="mt-4 flex items-start gap-2 rounded-xl border border-emerald-400/30 bg-emerald-500/10 px-3.5 py-2.5 text-sm text-emerald-200"
+                  >
+                    <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" />
+                    <span>
+                      Message sent. I&apos;ll get back to you within 24 hours.
+                    </span>
+                  </motion.div>
+                )}
+                {status.kind === "error" && (
+                  <motion.div
+                    key="error"
+                    initial={{ opacity: 0, y: 6 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    exit={{ opacity: 0, y: -4 }}
+                    className="mt-4 flex items-start gap-2 rounded-xl border border-rose-400/30 bg-rose-500/10 px-3.5 py-2.5 text-sm text-rose-200"
+                  >
+                    <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
+                    <span>{status.message}</span>
+                  </motion.div>
+                )}
+              </AnimatePresence>
+
               <div className="mt-5 flex flex-col-reverse items-stretch gap-3 sm:flex-row sm:items-center sm:justify-between">
                 <p className="text-[12px] text-white/45">
-                  This opens your default email client with a prefilled draft.
+                  Or email me directly at{" "}
+                  <a
+                    href={`mailto:${personal.email}`}
+                    className="text-violet-200 hover:text-white"
+                  >
+                    {personal.email}
+                  </a>
+                  .
                 </p>
                 <motion.button
                   whileTap={{ scale: 0.98 }}
                   type="submit"
-                  disabled={submitting}
+                  disabled={isLoading}
                   className="inline-flex items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-violet-600 to-cyan-500 px-5 py-2.5 text-sm font-medium text-white shadow-[0_0_30px_-12px_rgba(124,58,237,0.7)] transition hover:shadow-[0_0_36px_-6px_rgba(124,58,237,0.8)] disabled:opacity-70"
                 >
-                  <Send className="h-4 w-4" />
-                  {submitting ? "Opening…" : "Send message"}
+                  {isLoading ? (
+                    <>
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                      Sending…
+                    </>
+                  ) : (
+                    <>
+                      <Send className="h-4 w-4" />
+                      Send message
+                    </>
+                  )}
                 </motion.button>
               </div>
             </form>
@@ -257,6 +334,7 @@ function Field({
   placeholder,
   type = "text",
   required,
+  disabled,
 }: {
   label: string;
   value: string;
@@ -264,6 +342,7 @@ function Field({
   placeholder?: string;
   type?: string;
   required?: boolean;
+  disabled?: boolean;
 }) {
   return (
     <label className="block">
@@ -277,7 +356,8 @@ function Field({
         value={value}
         onChange={(e) => onChange(e.target.value)}
         placeholder={placeholder}
-        className="mt-1.5 w-full rounded-xl border border-white/10 bg-white/[0.02] px-3.5 py-2.5 text-sm text-white placeholder:text-white/30 outline-none transition focus:border-violet-400/40 focus:bg-white/[0.04]"
+        disabled={disabled}
+        className="mt-1.5 w-full rounded-xl border border-white/10 bg-white/[0.02] px-3.5 py-2.5 text-sm text-white placeholder:text-white/30 outline-none transition focus:border-violet-400/40 focus:bg-white/[0.04] disabled:opacity-60"
       />
     </label>
   );
